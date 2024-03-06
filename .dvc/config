@@ -1,0 +1,5 @@
+[core]
+    remote = trash_data
+['remote "trash_data"']
+    url = gdrive://1yedPGvhNzpw03KQurT5t2QGJHe8MAwlv
+    gdrive_acknowledge_abuse = true
