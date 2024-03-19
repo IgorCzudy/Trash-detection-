@@ -2,7 +2,7 @@ import os
 
 system_agnostic_path = lambda path: os.path.join("data", *path.encode("unicode_escape").decode().strip().split("\\"))
 
-with open("data/dataset_labels_matches.txt") as f:
+with open("data/training_fixed.txt") as f:
     for line in f:
         splitted = line.split("\t")
         if len(splitted) != 13:
