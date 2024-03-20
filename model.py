@@ -3,9 +3,11 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+from shapely.geometry import Point, Polygon
 from skimage import io, color, img_as_float
 from skimage.filters import difference_of_gaussians
 from sympy import symbols, Eq, solve
+
 
 def _get_sigma(altitude):
     if altitude <= 5:
@@ -168,6 +170,74 @@ def merge_rois(circles, image, visualize=False):
 
     return circles, roi_image
 
+##################### GET LABELS ######################
+
+def intersection_over_union(circle, rectangle):
+    x, y, r = circle
+    bl, tr = rectangle
+    rectangle_corners = [bl, (bl[0], tr[1]), tr, (tr[0], bl[1])]
+
+    circle = Point((x, y)).buffer(r)
+    rectangle = Polygon(rectangle_corners)
+    
+    intersection_area = circle.intersection(rectangle).area
+    union_area = circle.union(rectangle).area
+    
+    iou = intersection_area / union_area
+    
+    return 0 if union_area == 0 else iou
+
+def get_labels(path, filename, roi_circles, visualize=False, image=None):
+
+    # get trash labeled rectangles from json file
+    trash_rectangles = []
+
+    with open(path + filename + ".json") as json_file:
+        data = json.load(json_file)
+        shapes = data["shapes"]
+
+        for shape in shapes: 
+            if shape["shape_type"] != "rectangle": raise Exception("Invalid shape type in", filename)
+            if shape["label"] != "trash": raise Exception("Invalid label in", filename)
+            
+            bl, tr = shape["points"]
+            bl = tuple(map(int, bl))
+            tr = tuple(map(int, tr))
+
+            trash_rectangles.append((bl, tr))
+
+    # filter circles to get false circles
+    trash_circles = []
+
+    for rectangle in trash_rectangles:
+        for i, circle in enumerate(roi_circles):
+            if intersection_over_union(circle, rectangle) > 0.3:
+                trash_circles.append(i)
+
+    false_circles = [circle for i, circle in enumerate(roi_circles) if i not in trash_circles]
+    
+    # convert circles to rectangles
+    false_rectangles = []
+    for circle in false_circles:
+        x, y, r = circle
+        false_rectangles.append(((x-r, y-r), (x+r, y+r)))
+
+    if not visualize:
+        image_labels = None
+    else:
+        if image is None:
+            print("You have to provide an image for labels visualization")
+        else:
+            image_labels = image.copy()
+            for bl, tr in trash_rectangles:
+                cv2.rectangle(image_labels, bl, tr, (0, 255, 0), 2)
+
+            for bl, tr in false_rectangles:
+                cv2.rectangle(image_labels, bl, tr, (255, 0, 0), 2)
+    
+
+    return trash_rectangles, false_rectangles, image_labels
+
 
 if __name__ == "__main__":
     path = "data/Dataset/training/"
@@ -181,14 +251,25 @@ if __name__ == "__main__":
 
     mask, dog_image = apply_dog(image, altitude)
     rois, image_rois = find_rois(image, mask, visualize=visualize)
+    rois = [circle for circle in rois if np.pi*circle[2]**2 > 1000] # filter rois by surface
     rois, image_merged_rois = merge_rois(rois, image, visualize=visualize)
+    trash_labels, false_labels, image_labels = get_labels(path, filename, rois, visualize, image)
 
     # show all pictures
     if visualize:
-        fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+        fig, axes = plt.subplots(3, 2, figsize=(20, 8))
         ax = axes.ravel()
         ax[0].imshow(image)
+        ax[0].title.set_text("Original image")
         ax[1].imshow(dog_image, cmap='gray')
+        ax[1].title.set_text("Difference of gaussians")
         ax[2].imshow(image_rois)
+        ax[2].title.set_text("ROIs")
         ax[3].imshow(image_merged_rois)
+        ax[3].title.set_text("Merged ROIs")
+        ax[4].imshow(image_labels)
+        ax[4].title.set_text("Labels (green – trash, red – false)")
+        ax[5].imshow(np.zeros_like(image))
+
+        plt.tight_layout()
         plt.show()
