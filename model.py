@@ -236,7 +236,7 @@ def get_labels(path, filename, roi_circles, visualize=False, image=None):
                 else:
                     cv2.circle(image, (x, y), r, (0, 255, 0), 3)
 
-    return roi_circles, rectangles, image_labels
+    return roi_circles, rectangles, labels, image_labels
 
 
 def get_rgb_histogram_vector(img: np.array, plot=False)->np.array:
@@ -270,14 +270,14 @@ def get_sift_feture_vector(img: np.array, kp, plot=False)->np.array:
         image_with_keypoints = cv2.drawKeypoints(image_gray, kp, image, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
         plt.imshow(image_with_keypoints)
 
-    return sift_vector
+    return sift_vector[1][0]
 
 
 if __name__ == "__main__":
     path = "data/Dataset/training/"
     filename = "train_image1"
     image = io.imread(path + filename + ".JPG")
-    visualize = True
+    visualize = False
 
     with open(path + filename + ".json") as json_file:
         data = json.load(json_file)
@@ -287,17 +287,18 @@ if __name__ == "__main__":
     rois, image_rois = find_rois(image, mask, visualize=visualize)
     rois = [circle for circle in rois if np.pi*circle[2]**2 > 1000] # filter rois by surface
     rois, image_merged_rois = merge_rois(rois, image, visualize=visualize)
-    roi_circles, rectangles, image_labels = get_labels(path, filename, rois, visualize, image)
+    roi_circles, rectangles, labels, image_labels = get_labels(path, filename, rois, visualize, image)
 
 
-    for circle, rectangle, image_lable in zip(roi_circles, rectangles, image_labels):
+    for circle, rectangle, label in zip(roi_circles, rectangles, labels):
         x_circles, y_circles, r_circles = circle[0], circle[1], circle[2]
         x1_rec, x2_rec, y1_rec, y2_rec = rectangle[0][1], rectangle[1][1], rectangle[0][0], rectangle[1][0]
 
-        rgb_feture_vector = get_rgb_histogram_vector(image[x1_rec: x2_rec, y1_rec: y2_rec], plot=True)
+        rgb_feture_vector = get_rgb_histogram_vector(image[x1_rec: x2_rec, y1_rec: y2_rec], plot=visualize)
 
         kp = [cv2.KeyPoint(x_circles, y_circles, 2*r_circles)]
-        sift_feture_vector = get_sift_feture_vector(image, kp, plot=True)
+        sift_feture_vector = get_sift_feture_vector(image, kp, plot=visualize)
+        feture_vector = np.concatenate((rgb_feture_vector, sift_feture_vector, np.array([label])))
 
     # show all pictures
     if visualize:
