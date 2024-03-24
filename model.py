@@ -6,7 +6,7 @@ import os
 from shapely.geometry import Point, Polygon
 from skimage import io, color, img_as_float
 from skimage.filters import difference_of_gaussians
-from sympy import symbols, Eq, solve
+from sympy import symbols, Eq, solve, solveset
 
 
 def _get_sigma(altitude):
@@ -106,8 +106,9 @@ def find_new_center(circle1, circle2):
     circle_eq2 = Eq((x - x2)**2 + (y - y2)**2, r2**2)
 
     # Rozwiązanie równań
-    solutions1 = solve((line_eq, circle_eq1), (x, y))
-    solutions2 = solve((line_eq, circle_eq2), (x, y))
+    import sympy
+    solutions1 = sympy.solve((line_eq, circle_eq1), (x, y))
+    solutions2 = sympy.solve((line_eq, circle_eq2), (x, y))
     solutions = solutions1 + solutions2
 
     solutions.sort(key=lambda p: p[0] + p[1])
@@ -116,6 +117,7 @@ def find_new_center(circle1, circle2):
     y = (solutions[0][1] + solutions[-1][1])//2
 
     return (int(x), int(y))
+    # return ((x1 + x2)//2, (y1 + y2)//2)
     
 
 def show_merge(image, center1, r1, center2, r2, new_center, new_radius):
@@ -275,46 +277,52 @@ def get_sift_feture_vector(img: np.array, kp, plot=False)->np.array:
 
 if __name__ == "__main__":
     path = "data/Dataset/training/"
-    filename = "train_image1"
-    image = io.imread(path + filename + ".JPG")
-    visualize = False
 
-    with open(path + filename + ".json") as json_file:
-        data = json.load(json_file)
-        altitude = int(os.path.splitext(data["imagePath"])[0].split('_')[-1])
+    jpg_files = [f for f in os.listdir(path) if f.endswith('.JPG')]
 
-    mask, dog_image = apply_dog(image, altitude)
-    rois, image_rois = find_rois(image, mask, visualize=visualize)
-    rois = [circle for circle in rois if np.pi*circle[2]**2 > 1000] # filter rois by surface
-    rois, image_merged_rois = merge_rois(rois, image, visualize=visualize)
-    roi_circles, rectangles, labels, image_labels = get_labels(path, filename, rois, visualize, image)
+    for jpg_file in jpg_files:
+        print(jpg_file)
+
+        filename = jpg_file[:-4]
+        image = io.imread(path + filename + ".JPG")
+        visualize = False
+
+        with open(path + filename + ".json") as json_file:
+            data = json.load(json_file)
+            altitude = int(os.path.splitext(data["imagePath"])[0].split('_')[-1])
+
+        mask, dog_image = apply_dog(image, altitude)
+        rois, image_rois = find_rois(image, mask, visualize=visualize)
+        rois = [circle for circle in rois if np.pi*circle[2]**2 > 1000] # filter rois by surface
+        rois, image_merged_rois = merge_rois(rois, image, visualize=visualize)
+        roi_circles, rectangles, labels, image_labels = get_labels(path, filename, rois, visualize, image)
 
 
-    for circle, rectangle, label in zip(roi_circles, rectangles, labels):
-        x_circles, y_circles, r_circles = circle[0], circle[1], circle[2]
-        x1_rec, x2_rec, y1_rec, y2_rec = rectangle[0][1], rectangle[1][1], rectangle[0][0], rectangle[1][0]
+        for circle, rectangle, label in zip(roi_circles, rectangles, labels):
+            x_circles, y_circles, r_circles = circle[0], circle[1], circle[2]
+            x1_rec, x2_rec, y1_rec, y2_rec = rectangle[0][1], rectangle[1][1], rectangle[0][0], rectangle[1][0]
 
-        rgb_feture_vector = get_rgb_histogram_vector(image[x1_rec: x2_rec, y1_rec: y2_rec], plot=visualize)
+            rgb_feture_vector = get_rgb_histogram_vector(image[x1_rec: x2_rec, y1_rec: y2_rec], plot=visualize)
 
-        kp = [cv2.KeyPoint(x_circles, y_circles, 2*r_circles)]
-        sift_feture_vector = get_sift_feture_vector(image, kp, plot=visualize)
-        feture_vector = np.concatenate((rgb_feture_vector, sift_feture_vector, np.array([label])))
+            kp = [cv2.KeyPoint(x_circles, y_circles, 2*r_circles)]
+            sift_feture_vector = get_sift_feture_vector(image, kp, plot=visualize)
+            feture_vector = np.concatenate((rgb_feture_vector, sift_feture_vector, np.array([label])))
 
-    # show all pictures
-    if visualize:
-        fig, axes = plt.subplots(3, 2, figsize=(20, 8))
-        ax = axes.ravel()
-        ax[0].imshow(image)
-        ax[0].title.set_text("Original image")
-        ax[1].imshow(dog_image, cmap='gray')
-        ax[1].title.set_text("Difference of gaussians")
-        ax[2].imshow(image_rois)
-        ax[2].title.set_text("ROIs")
-        ax[3].imshow(image_merged_rois)
-        ax[3].title.set_text("Merged ROIs")
-        ax[4].imshow(image_labels)
-        ax[4].title.set_text("Labels (green – trash, red – false)")
-        ax[5].imshow(np.zeros_like(image))
+        # show all pictures
+        if visualize:
+            fig, axes = plt.subplots(3, 2, figsize=(20, 8))
+            ax = axes.ravel()
+            ax[0].imshow(image)
+            ax[0].title.set_text("Original image")
+            ax[1].imshow(dog_image, cmap='gray')
+            ax[1].title.set_text("Difference of gaussians")
+            ax[2].imshow(image_rois)
+            ax[2].title.set_text("ROIs")
+            ax[3].imshow(image_merged_rois)
+            ax[3].title.set_text("Merged ROIs")
+            ax[4].imshow(image_labels)
+            ax[4].title.set_text("Labels (green – trash, red – false)")
+            ax[5].imshow(np.zeros_like(image))
 
-        plt.tight_layout()
-        plt.show()
+            plt.tight_layout()
+            plt.show()
