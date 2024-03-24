@@ -206,21 +206,20 @@ def get_labels(path, filename, roi_circles, visualize=False, image=None):
 
             trash_rectangles.append((bl, tr))
 
+    rectangles = []
+    for circle in roi_circles:
+        x, y, r = circle
+        rectangles.append(((x-r, y-r), (x+r, y+r)))
+
     # filter circles to get false circles
-    trash_circles = []
+    labels = []
 
     for rectangle in trash_rectangles:
         for i, circle in enumerate(roi_circles):
             if intersection_over_union(circle, rectangle) > 0.3:
-                trash_circles.append(i)
-
-    false_circles = [circle for i, circle in enumerate(roi_circles) if i not in trash_circles]
-    
-    # convert circles to rectangles
-    false_rectangles = []
-    for circle in false_circles:
-        x, y, r = circle
-        false_rectangles.append(((x-r, y-r), (x+r, y+r)))
+                labels.append(1) # 1 is trash 
+            else:
+                labels.append(0) # 0 is not trash 
 
     if not visualize:
         image_labels = None
@@ -229,14 +228,49 @@ def get_labels(path, filename, roi_circles, visualize=False, image=None):
             print("You have to provide an image for labels visualization")
         else:
             image_labels = image.copy()
-            for bl, tr in trash_rectangles:
-                cv2.rectangle(image_labels, bl, tr, (0, 255, 0), 2)
+            for label, circle in zip(labels, roi_circles):
+                x, y, r = circle[0], circle[1], circle[2]
 
-            for bl, tr in false_rectangles:
-                cv2.rectangle(image_labels, bl, tr, (255, 0, 0), 2)
-    
+                if label:
+                    cv2.circle(image, (x, y), r, (255, 0, 0), 3)
+                else:
+                    cv2.circle(image, (x, y), r, (0, 255, 0), 3)
 
-    return trash_rectangles, false_rectangles, image_labels
+    return roi_circles, rectangles, image_labels
+
+
+def get_rgb_histogram_vector(img: np.array, plot=False)->np.array:
+    image = img.copy()
+    hist_r, bins_r = np.histogram(image[:, :, 0], bins=50, range=(0, 256))
+    hist_g, bins_g = np.histogram(image[:, :, 1], bins=50, range=(0, 256))
+    hist_b, bins_b = np.histogram(image[:, :, 2], bins=50, range=(0, 256))
+
+    if plot:
+        plt.plot(bins_r[:-1], hist_r, color='r', label='Red')
+        plt.plot(bins_g[:-1], hist_g, color='g', label='Green')
+        plt.plot(bins_b[:-1], hist_b, color='b', label='Blue')
+        plt.title('Color Histogram')
+        plt.xlabel('Pixel Intensity')
+        plt.ylabel('Frequency')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+
+    return np.concatenate((hist_r, hist_g, hist_b))
+
+def get_sift_feture_vector(img: np.array, kp, plot=False)->np.array:
+    image = img.copy()
+    image_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    sift = cv2.SIFT_create()
+
+    sift_vector = sift.compute(image_gray, kp, image)
+
+    if plot:
+        image_with_keypoints = cv2.drawKeypoints(image_gray, kp, image, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        plt.imshow(image_with_keypoints)
+
+    return sift_vector
 
 
 if __name__ == "__main__":
@@ -253,7 +287,17 @@ if __name__ == "__main__":
     rois, image_rois = find_rois(image, mask, visualize=visualize)
     rois = [circle for circle in rois if np.pi*circle[2]**2 > 1000] # filter rois by surface
     rois, image_merged_rois = merge_rois(rois, image, visualize=visualize)
-    trash_labels, false_labels, image_labels = get_labels(path, filename, rois, visualize, image)
+    roi_circles, rectangles, image_labels = get_labels(path, filename, rois, visualize, image)
+
+
+    for circle, rectangle, image_lable in zip(roi_circles, rectangles, image_labels):
+        x_circles, y_circles, r_circles = circle[0], circle[1], circle[2]
+        x1_rec, x2_rec, y1_rec, y2_rec = rectangle[0][1], rectangle[1][1], rectangle[0][0], rectangle[1][0]
+
+        rgb_feture_vector = get_rgb_histogram_vector(image[x1_rec: x2_rec, y1_rec: y2_rec], plot=True)
+
+        kp = [cv2.KeyPoint(x_circles, y_circles, 2*r_circles)]
+        sift_feture_vector = get_sift_feture_vector(image, kp, plot=True)
 
     # show all pictures
     if visualize:
