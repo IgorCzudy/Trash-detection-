@@ -172,6 +172,62 @@ def merge_rois(circles, image, visualize=False):
 
     return circles, roi_image
 
+###################### MERGE ROIS AS RECTANGLES ######################
+def circles_to_squares(circles):
+    return [((x-r, y-r), (x+r, y+r)) for x, y, r in circles]
+
+def draw_rectangles(image, rectangles, color=(0, 255, 0)):
+    for rectangle in rectangles:
+        bl, tr = rectangle
+        cv2.rectangle(image, bl, tr, color, 2)
+    return image
+
+def rectangles_intersect(rect1, rect2):
+    (xl1, yb1), (xr1, yt1) = rect1
+    (xl2, yb2), (xr2, yt2) = rect2
+
+    x_distance = min(xr1, xr2) - max(xl1, xl2)
+    y_distance = min(yt1, yt2) - max(yb1, yb2)
+    return x_distance * y_distance > 0
+
+def merge_rois_to_rectangle(roi_circles, image, visualize=False):
+    image_with_merges = np.zeros_like(image) if visualize else None
+    
+    if visualize:
+        draw_circles(image_with_merges, roi_circles, (0, 255, 0))
+
+    rectangles = circles_to_squares(roi_circles)
+
+    # Greedy grouping algorithm to merge intersecting circles
+    changed = True
+    while changed == True:
+        changed = False
+        i = 0
+        while i < len(rectangles):
+                j = i + 1
+                while j < len(rectangles):
+                    if rectangles_intersect(rectangles[i], rectangles[j]):
+                        # Merge rectangles[i] and rectangles[j]
+                        (xl1, yb1), (xr1, yt1) = rectangles[i]
+                        (xl2, yb2), (xr2, yt2) = rectangles[j]
+
+                        new_rectangle = (min(xl1, xl2), min(yb1, yb2)), (max(xr1, xr2), max(yt1, yt2))
+
+                        rectangles[i] = new_rectangle
+                        rectangles.pop(j)
+                        changed = True
+
+                    else:
+                        j+=1
+                i += 1
+                        
+    if visualize:                        
+        # Draw circles around the final merged circles
+        draw_rectangles(image_with_merges, rectangles, (255, 0, 0))
+
+    return rectangles, image_with_merges
+
+
 ##################### GET LABELS ######################
 
 def intersection_over_union(circle, rectangle):
