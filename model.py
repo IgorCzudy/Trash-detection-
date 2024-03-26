@@ -2,6 +2,7 @@ import cv2
 import json
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import os
 from shapely.geometry import Point, Polygon
 from skimage import io, color, img_as_float
@@ -134,11 +135,11 @@ def find_new_center(circle1: Circle, circle2: Circle) -> Tuple[int, int]:
     circle_eq = Eq((x - circle1.x)**2 + (y - circle1.y)**2, circle1.r**2)
     intersection_points1 = solve((line_eq, circle_eq), (x, y))
 
-    slope = (circle2.y - circle1.y) / (circle2.x - circle1.x)
-    intercept = circle1.y - slope * circle1.x
-    line_eq = Eq(y, slope * x + intercept)
-    circle_eq = Eq((x - circle2.x)**2 + (y - circle2.y)**2, circle2.r**2)
-    intersection_points2 = solve((line_eq, circle_eq), (x, y))
+    slope2 = (circle2.y - circle1.y) / (circle2.x - circle1.x)
+    intercept2 = circle1.y - slope * circle1.x
+    line_eq2 = Eq(y, slope2 * x + intercept2)
+    circle_eq2 = Eq((x - circle2.x)**2 + (y - circle2.y)**2, circle2.r**2)
+    intersection_points2 = solve((line_eq2, circle_eq2), (x, y))
 
     intersection_points = intersection_points1 + intersection_points2
     intersection_points.sort(key=lambda p: p[0] + p[1])
@@ -428,6 +429,7 @@ if __name__ == "__main__":
     visualize = True
 
     jpg_files = [f for f in os.listdir(path) if f.endswith(".JPG")]
+    feature_vectors = []
 
     for jpg_file in jpg_files:
         print(jpg_file)
@@ -463,6 +465,11 @@ if __name__ == "__main__":
             feture_vector = np.concatenate(
                 (rgb_feture_vector, sift_feture_vector, np.array([label]))
             )
+            feature_vectors.append(feture_vector)
+
+        df = pd.DataFrame(feature_vectors)
+        df.to_csv('data/feature_vectors.csv', index=False)
+
 
         # show all pictures
         if visualize:
