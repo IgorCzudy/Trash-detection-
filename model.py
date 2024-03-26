@@ -125,30 +125,29 @@ def find_new_center(circle1: Circle, circle2: Circle) -> Tuple[int, int]:
     """
     find a center of a new circle
     """
-    x, y = symbols("x y")
 
-    # Line equation: y = m * x + b, crossing two points
-    m = (circle2.y - circle1.y) / (circle2.x - circle1.x)
-    line_eq = Eq(y - circle1.y, m * (x - circle1.x))
+    x, y = symbols('x y')
 
-    # Circle equatin: (x - a)^2 + (y - b)^2 = r^2
-    circle_eq1 = Eq((x - circle1.x) ** 2 + (y - circle1.y) ** 2, circle1.r**2)
-    circle_eq2 = Eq((x - circle2.x) ** 2 + (y - circle2.y) ** 2, circle2.r**2)
+    slope = (circle2.y - circle1.y) / (circle2.x - circle1.x)
+    intercept = circle1.y - slope * circle1.x
+    line_eq = Eq(y, slope * x + intercept)
+    circle_eq = Eq((x - circle1.x)**2 + (y - circle1.y)**2, circle1.r**2)
+    intersection_points1 = solve((line_eq, circle_eq), (x, y))
 
-    # Solve the system of equations
-    import sympy
+    slope = (circle2.y - circle1.y) / (circle2.x - circle1.x)
+    intercept = circle1.y - slope * circle1.x
+    line_eq = Eq(y, slope * x + intercept)
+    circle_eq = Eq((x - circle2.x)**2 + (y - circle2.y)**2, circle2.r**2)
+    intersection_points2 = solve((line_eq, circle_eq), (x, y))
 
-    solutions1 = sympy.solve((line_eq, circle_eq1), (x, y))
-    solutions2 = sympy.solve((line_eq, circle_eq2), (x, y))
-    solutions = solutions1 + solutions2
+    intersection_points = intersection_points1 + intersection_points2
+    intersection_points.sort(key=lambda p: p[0] + p[1])
+    intersection_points
 
-    solutions.sort(key=lambda p: p[0] + p[1])
-
-    x = (solutions[0][0] + solutions[-1][0]) // 2
-    y = (solutions[0][1] + solutions[-1][1]) // 2
+    x = (intersection_points[0][0] + intersection_points[-1][0]) // 2
+    y = (intersection_points[0][1] + intersection_points[-1][1]) // 2
 
     return (int(x), int(y))
-    # return ((x1 + x2)//2, (y1 + y2)//2)
 
 
 def show_merge(
@@ -380,10 +379,10 @@ def get_labels(
             for label, circle in zip(labels, roi_circles):
                 x, y, r = circle.x, circle.y, circle.r
 
-                if label:
-                    cv2.circle(image, (x, y), r, (255, 0, 0), 3)
+                if label==0:
+                    cv2.circle(image_labels, (x, y), r, (255, 0, 0), 3)
                 else:
-                    cv2.circle(image, (x, y), r, (0, 255, 0), 3)
+                    cv2.circle(image_labels, (x, y), r, (0, 255, 0), 3)
 
     return roi_circles, rectangles, labels, image_labels
 
@@ -426,7 +425,7 @@ def get_sift_feture_vector(img: np.array, kp, plot=False) -> np.array:
 
 if __name__ == "__main__":
     path = "data/Dataset/training/"
-    visualize = False
+    visualize = True
 
     jpg_files = [f for f in os.listdir(path) if f.endswith(".JPG")]
 
@@ -456,11 +455,11 @@ if __name__ == "__main__":
 
             rgb_feture_vector = get_rgb_histogram_vector(
                 image[rectangle.x_l : rectangle.x_r, rectangle.y_b : rectangle.y_t],
-                plot=visualize,
+                plot=False,
             )
 
             kp = [cv2.KeyPoint(x_circles, y_circles, 2 * r_circles)]
-            sift_feture_vector = get_sift_feture_vector(image, kp, plot=visualize)
+            sift_feture_vector = get_sift_feture_vector(image, kp, plot=False)
             feture_vector = np.concatenate(
                 (rgb_feture_vector, sift_feture_vector, np.array([label]))
             )
@@ -476,7 +475,7 @@ if __name__ == "__main__":
             ax[2].imshow(image_rois)
             ax[2].title.set_text("ROIs")
             ax[3].imshow(image_merged_rois)
-            ax[3].title.set_text("Merged ROIs")
+            ax[3].title.set_text("Filtered and merged ROIs")
             ax[4].imshow(image_labels)
             ax[4].title.set_text("Labels (green – trash, red – false)")
             ax[5].imshow(np.zeros_like(image))
