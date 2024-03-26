@@ -53,7 +53,7 @@ def apply_dog(image: np.array, altitude: int) -> Tuple[np.array, np.array]:
 
 def find_rois(
     image: np.array, mask: np.array, visualize=False
-) -> Tuple[List[Tuple[int, int, int]], np.array]:
+) -> Tuple[List[Circle], np.array]:
     ### Find ROIs
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     image_with_contours = image.copy() if visualize else None
@@ -66,7 +66,8 @@ def find_rois(
         scaling_factor = 1.5  # increase the size of the circle for merging the ROIs
         center = (x + w // 2, y + h // 2)
         radius = int(scaling_factor * max(w, h) / 2)
-        circles.append((*center, radius))
+        circle = Circle(x=center[0], y=center[1], r=radius)
+        circles.append(circle)
 
         if visualize:
             cv2.circle(image_with_contours, center, radius, (255, 0, 0), 2)
@@ -76,59 +77,59 @@ def find_rois(
 
 ###################### MERGE ROIS ######################
 def draw_circles(
-    image: np.array, circles: List[Tuple[int, int, int]], color: Tuple[int, int, int]
+    image: np.array, circles: List[Circle], color: Tuple[int, int, int]
 ) -> np.array:
     # show all circles on the image
     for i, circle in enumerate(circles):
-        x, y, r = circle
-        cv2.circle(image, (x, y), r, color, 2)
-        cv2.circle(image, (x, y), 2, (0, 0, 255), 3)  # Center
+        # x, y, r = circle
+        cv2.circle(image, (circle.x, circle.y), circle.r, color, 2)
+        cv2.circle(image, (circle.x, circle.y), 2, (0, 0, 255), 3)  # Center
         cv2.putText(
-            image, f"{i}", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1
+            image, f"{i}", (circle.x, circle.y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1
         )
     return image
 
 
 def circles_intersect(
-    circle1: Tuple[int, int, int], circle2: Tuple[int, int, int]
+    circle1: Circle, circle2: Circle
 ) -> Tuple[bool, float]:
     # Check if two circles intersect
-    x1, y1, r1 = circle1
-    x2, y2, r2 = circle2
-    dist_centers = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-    return dist_centers <= (r1 + r2), dist_centers
+    # x1, y1, r1 = circle1
+    # x2, y2, r2 = circle2
+    dist_centers = np.sqrt((circle2.x - circle1.x) ** 2 + (circle2.y - circle1.y) ** 2)
+    return dist_centers <= (circle1.r + circle2.r), dist_centers
 
 
 def circle_in_circle(
-    circle1: Tuple[int, int, int], circle2: Tuple[int, int, int], dist_centers: float
+    circle1: Circle, circle2: Circle, dist_centers: float
 ) -> Tuple[int, int, int]:
     # Check if circle1 is inside circle2 or vice versa
-    x1, y1, r1 = circle1
-    x2, y2, r2 = circle2
-    if dist_centers + r2 <= r1:
+    # x1, y1, r1 = circle1
+    # x2, y2, r2 = circle2
+    if dist_centers + circle2.r <= circle1.r:
         return circle1
-    if dist_centers + r1 <= r2:
+    if dist_centers + circle1.r <= circle2.r:
         return circle2
     else:
         return False
 
 
 def find_new_center(
-    circle1: Tuple[int, int, int], circle2: Tuple[int, int, int]
+    circle1: Circle, circle2: Circle
 ) -> Tuple[int, int]:
     # find a center of a new circle
-    x1, y1, r1 = circle1
-    x2, y2, r2 = circle2
+    # x1, y1, r1 = circle1
+    # x2, y2, r2 = circle2
 
     x, y = symbols("x y")
 
     # Prosta przechodząca przez 2 punkty
-    m = (y2 - y1) / (x2 - x1)
-    line_eq = Eq(y - y1, m * (x - x1))
+    m = (circle2.y - circle1.y) / (circle2.x - circle1.x)
+    line_eq = Eq(y - circle1.y, m * (x - circle1.x))
 
     # Równanie okręgu: (x - a)^2 + (y - b)^2 = r^2
-    circle_eq1 = Eq((x - x1) ** 2 + (y - y1) ** 2, r1**2)
-    circle_eq2 = Eq((x - x2) ** 2 + (y - y2) ** 2, r2**2)
+    circle_eq1 = Eq((x - circle1.x) ** 2 + (y - circle1.y) ** 2, circle1.r**2)
+    circle_eq2 = Eq((x - circle2.x) ** 2 + (y - circle2.y) ** 2, circle2.r**2)
 
     # Rozwiązanie równań
     import sympy
@@ -165,7 +166,7 @@ def show_merge(
     plt.show()
 
 
-def merge_rois(circles: List[Tuple[int, int, int]], image: np.array, visualize=False):
+def merge_rois(circles: List[Circle], image: np.array, visualize=False):
     # Create a black image
     roi_image = image.copy() if visualize else None
 
@@ -181,18 +182,23 @@ def merge_rois(circles: List[Tuple[int, int, int]], image: np.array, visualize=F
             j = i + 1
             while j < len(circles):
                 intersect, distance = circles_intersect(circles[i], circles[j])
-                _, _, r1 = circles[i]
-                _, _, r2 = circles[j]
+                # _, _, r1 = circles[i]
+                # _, _, r2 = circles[j]
+                circle1 = circles[i]
+                circle2 = circles[j]
+                
                 if intersect:
                     # Merge circles[i] and circles[j]
-                    if circle := circle_in_circle(circles[i], circles[j], distance):
-                        new_x, new_y, new_radius = circle
+                    if circle := circle_in_circle(circle1, circle2, distance):
+                        # new_x, new_y, new_radius = circle.x
+                        new_circle = circle
                     else:
-                        new_radius = int((r1 + r2 + distance) // 2)
+                        new_radius = int((circle1.r + circle2.r + distance) // 2)
                         new_x, new_y = find_new_center(circles[i], circles[j])
+                        new_circle = Circle(x=new_x, y=new_y, r=new_radius)
 
                     # show_merge(roi_image, (x1, y1), r1, (x2, y2), r2, (new_x, new_y), new_radius)
-                    circles[i] = (new_x, new_y, new_radius)
+                    circles[i] = new_circle
                     circles.pop(j)
                     changed = True
 
@@ -209,9 +215,9 @@ def merge_rois(circles: List[Tuple[int, int, int]], image: np.array, visualize=F
 
 ###################### MERGE ROIS AS RECTANGLES ######################
 def circles_to_squares(
-    circles: List[Tuple[int, int, int]]
+    circles: List[Circle]
 ) -> List[Rectangle]:
-    return [Rectangle(x_l=x - r, y_b=y - r, x_r=x + r, y_t=y + r) for x, y, r in circles]
+    return [Rectangle(x_l = circle.x-circle.r, y_b = circle.y-circle.r, x_r = circle.x+circle.r, y_t = circle.y+circle.r) for circle in circles]
 
 
 def draw_rectangles(
@@ -236,7 +242,7 @@ def rectangles_intersect(
 
 
 def merge_rois_to_rectangle(
-    roi_circles: List[Tuple[int, int, int]], image: np.array, visualize=False
+    roi_circles: List[Circle], image: np.array, visualize=False
 ) -> Tuple[List[Rectangle], np.array]:
     image_with_merges = np.zeros_like(image) if visualize else None
 
@@ -294,10 +300,10 @@ def merge_rois_to_rectangle(
 # Rectangle = namedtuple('Rectangle', ['x_l', 'y_b', 'x_r', 'y_t'])
 
 def intersection_over_union(
-    circle: List[Tuple[int, int, int]],
+    circle: List[Circle],
     rectangle: Rectangle,
 ) -> float:
-    x, y, r = circle
+    x, y, r = circle.x, circle.y, circle.r
     # rectangle_corners = [bl, (bl[0], tr[1]), tr, (tr[0], bl[1])]
     rectangle_corners = [(rectangle.x_l, rectangle.y_b), (rectangle.x_l, rectangle.y_t), (rectangle.x_r, rectangle.y_t), (rectangle.x_r, rectangle.y_b)]
     circle = Point((x, y)).buffer(r)
@@ -314,7 +320,7 @@ def intersection_over_union(
 def get_labels(
     path: str,
     filename: str,
-    roi_circles: List[Tuple[int, int, int]],
+    roi_circles: List[Circle],
     visualize=False,
     image=None,
 ):
@@ -341,7 +347,7 @@ def get_labels(
 
     rectangles = []
     for circle in roi_circles:
-        x, y, r = circle
+        x, y, r = circle.x , circle.y, circle.r
 
         rectangle = Rectangle(x - r, y - r, x + r, y + r)
         rectangles.append(rectangle)
@@ -365,7 +371,7 @@ def get_labels(
         else:
             image_labels = image.copy()
             for label, circle in zip(labels, roi_circles):
-                x, y, r = circle[0], circle[1], circle[2]
+                x, y, r = circle.x, circle.y, circle.r
 
                 if label:
                     cv2.circle(image, (x, y), r, (255, 0, 0), 3)
