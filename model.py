@@ -100,205 +100,37 @@ def draw_circles(
     return image
 
 
-def circles_intersect(circle1: Circle, circle2: Circle) -> Tuple[bool, float]:
-    """
-    Check if two circles intersect
-    """
-    dist_centers = np.sqrt((circle2.x - circle1.x) ** 2 + (circle2.y - circle1.y) ** 2)
-    return dist_centers <= (circle1.r + circle2.r), dist_centers
-
-
-def circle_in_circle(
-    circle1: Circle, circle2: Circle, dist_centers: float
-) -> Tuple[int, int, int]:
-    """
-    Check if circle1 is inside circle2 or vice versa
-    """
-    if dist_centers + circle2.r <= circle1.r:
-        return circle1
-    if dist_centers + circle1.r <= circle2.r:
-        return circle2
-    else:
-        return False
-
-
-def find_new_center(circle1: Circle, circle2: Circle) -> Tuple[int, int]:
-    """
-    find a center of a new circle
-    """
-
-    x, y = symbols('x y')
-
-    slope = (circle2.y - circle1.y) / (circle2.x - circle1.x)
-    intercept = circle1.y - slope * circle1.x
-    line_eq = Eq(y, slope * x + intercept)
-    circle_eq = Eq((x - circle1.x)**2 + (y - circle1.y)**2, circle1.r**2)
-    intersection_points1 = solve((line_eq, circle_eq), (x, y))
-
-    slope2 = (circle2.y - circle1.y) / (circle2.x - circle1.x)
-    intercept2 = circle1.y - slope * circle1.x
-    line_eq2 = Eq(y, slope2 * x + intercept2)
-    circle_eq2 = Eq((x - circle2.x)**2 + (y - circle2.y)**2, circle2.r**2)
-    intersection_points2 = solve((line_eq2, circle_eq2), (x, y))
-
-    intersection_points = intersection_points1 + intersection_points2
-    intersection_points.sort(key=lambda p: p[0] + p[1])
-    intersection_points
-
-    x = (intersection_points[0][0] + intersection_points[-1][0]) // 2
-    y = (intersection_points[0][1] + intersection_points[-1][1]) // 2
-
-    return (int(x), int(y))
-
-
-def show_merge(
-    image: np.array,
-    center1: float,
-    r1: float,
-    center2: float,
-    r2: float,
-    new_center: float,
-    new_radius: float,
-):
-    """
-    show circles before and after merging
-    """
-    blank = np.zeros_like(image)
-
-    cv2.circle(blank, center1, r1, (255, 0, 0), 2)
-    cv2.circle(blank, center2, r2, (255, 0, 0), 2)
-    cv2.circle(blank, new_center, new_radius, (0, 255, 0), 2)
-    plt.imshow(blank)
-    plt.show()
+def create_circle_mask(circle, image_shape):
+    """Create a mask for one circle"""
+    mask = np.zeros(image_shape[:2], dtype=np.uint8)
+    cv2.circle(mask, (circle.x, circle.y), circle.r, 255, -1)
+    return mask
 
 
 def merge_rois(circles: List[Circle], image: np.array, visualize=False):
     """
-    marge intersecting circles
+    merge intersecting circles
     """
-    roi_image = image.copy() if visualize else None
 
-    # if visualize:
-    #     roi_image = draw_circles(roi_image, circles, (0, 255, 0))
+    image_shape = image.shape[:2]
+    merged_circles_mask = np.zeros(image_shape, dtype=np.uint8)
 
-    # Greedy grouping algorithm to merge intersecting circles
-    changed = True
-    while changed == True:
-        changed = False
-        i = 0
-        while i < len(circles):
-            j = i + 1
-            while j < len(circles):
-                intersect, distance = circles_intersect(circles[i], circles[j])
-                circle1 = circles[i]
-                circle2 = circles[j]
-
-                if intersect:
-                    # Merge circles[i] and circles[j]
-                    if circle := circle_in_circle(circle1, circle2, distance):
-                        new_circle = circle
-                    else:
-                        new_radius = int((circle1.r + circle2.r + distance) // 2)
-                        new_x, new_y = find_new_center(circles[i], circles[j])
-                        new_circle = Circle(x=new_x, y=new_y, r=new_radius)
-
-                    # show_merge(roi_image, (x1, y1), r1, (x2, y2), r2, (new_x, new_y), new_radius)
-                    circles[i] = new_circle
-                    circles.pop(j)
-                    changed = True
-
-                else:
-                    j += 1
-            i += 1
-
-    # Draw circles around the final merged circles
-    if visualize:
-        roi_image = draw_circles(roi_image, circles, (255, 0, 0))
-
-    return circles, roi_image
+    for circle in circles:
+        current_circle_mask = create_circle_mask(circle, image_shape)
+        merged_circles_mask = cv2.bitwise_or(merged_circles_mask, current_circle_mask)
 
 
-###################### MERGE ROIS AS RECTANGLES ######################
-def circles_to_squares(circles: List[Circle]) -> List[Rectangle]:
-    """
-    map circles to squares
-    """
-    return [
-        Rectangle(
-            x_l=circle.x - circle.r,
-            y_b=circle.y - circle.r,
-            x_r=circle.x + circle.r,
-            y_t=circle.y + circle.r,
-        )
-        for circle in circles
-    ]
+    contours, _ = cv2.findContours(merged_circles_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
+    merged_circles = []
+    for contour in contours:
+        (x, y), r = cv2.minEnclosingCircle(contour)
+        x, y, r = int(x), int(y), int(r)
+        merged_circles.append(Circle(x, y, r))
+        
+        if visualize: cv2.circle(merged_circles_mask, (x, y), r, 255, 2)
 
-def draw_rectangles(
-    image: np.array,
-    rectangles: List[Rectangle],
-    color=(0, 255, 0),
-) -> np.array:
-    for rectangle in rectangles:
-        cv2.rectangle(
-            image,
-            (rectangle.x_l, rectangle.y_b),
-            (rectangle.x_r, rectangle.y_t),
-            color,
-            2,
-        )
-    return image
-
-
-def rectangles_intersect(
-    rect1: Rectangle,
-    rect2: Rectangle,
-) -> bool:
-
-    # TODO bug was here? Two times x_distance
-    x_distance = min(rect1.x_r, rect2.x_r) - max(rect1.x_l, rect2.x_l)
-    y_distance = min(rect1.y_t, rect2.y_t) - max(rect1.y_b, rect2.y_b)
-    return x_distance * y_distance > 0
-
-
-def merge_rois_to_rectangle(
-    roi_circles: List[Circle], image: np.array, visualize=False
-) -> Tuple[List[Rectangle], np.array]:
-    image_with_merges = np.zeros_like(image) if visualize else None
-
-    if visualize:
-        draw_circles(image_with_merges, roi_circles, (0, 255, 0))
-
-    rectangles = circles_to_squares(roi_circles)
-
-    # Greedy grouping algorithm to merge intersecting circles
-    changed = True
-    while changed == True:
-        changed = False
-        i = 0
-        while i < len(rectangles):
-            j = i + 1
-            while j < len(rectangles):
-                if rectangles_intersect(rectangles[i], rectangles[j]):
-                    new_rectangle = Rectangle(
-                        x_l=min(rectangles[i].x_l, rectangles[j].x_l),
-                        y_b=min(rectangles[i].y_b, rectangles[j].y_b),
-                        x_r=max(rectangles[i].x_r, rectangles[j].x_r),
-                        y_t=max(rectangles[i].y_t, rectangles[j].y_t),
-                    )
-                    rectangles[i] = new_rectangle
-                    rectangles.pop(j)
-                    changed = True
-
-                else:
-                    j += 1
-            i += 1
-
-    if visualize:
-        # Draw circles around the final merged circles
-        draw_rectangles(image_with_merges, rectangles, (255, 0, 0))
-
-    return rectangles, image_with_merges
+    return merged_circles, merged_circles_mask
 
 
 ##################### GET LABELS ######################
