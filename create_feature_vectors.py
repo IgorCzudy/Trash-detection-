@@ -161,11 +161,13 @@ def get_labels(
     roi_circles: List[Circle],
     iou_treshold=0.3,
     visualize=False,
-    image=None
+    image=None,
+    no_trash_warning=False
 ):
     """
     get trash labeled rectangles from json file
     @param iou_treshold – how much intersection is needed to label the circle as trash
+    @no_trash_warning – if True, print a warning if no trash is detected in the image
     """
     trash_rectangles = []
 
@@ -202,6 +204,13 @@ def get_labels(
                 labels.append(1)  # 1 is trash
             else:
                 labels.append(0)  # 0 is not trash
+
+    if no_trash_warning:
+        if sum(labels) == 0:
+            print(f"No trash detected in image {filename}")
+        elif sum(labels) != trash_rectangles:
+            print(f"{sum(labels)} trash detected in image {filename} but should be {len(trash_rectangles)}")
+    
 
     if not visualize:
         image_labels = None
@@ -268,24 +277,24 @@ def get_sift_feature_vector(img: np.array, kp, plot=False) -> np.array:
 
 
 ############################ MAIN ##############################
-def create_feature_vectors(split, dog_threshold = 0.03, filtering_treshold = 1000, iou_treshold=0.3, visualize=False):
+def create_feature_vectors(split, dog_threshold = 0.03, filtering_treshold = 1000, iou_treshold=0.3, visualize=False, no_trash_warning=False):
     path = f"data/Dataset/{split}/"
 
     jpg_files = [f for f in os.listdir(path) if f.endswith(".JPG")]
-    feature_vectors = []
+    all_feature_vectors = []
 
     for jpg_file in jpg_files:
         print(jpg_file)
         filename = jpg_file[:-4]
 
-        feature_vector = create_feature_vector(filename, path, dog_threshold, filtering_treshold, iou_treshold, visualize)
-        feature_vectors.append(feature_vector)
+        feature_vectors = create_feature_vector(filename, path, dog_threshold, filtering_treshold, iou_treshold, visualize, no_trash_warning)
+        all_feature_vectors += feature_vectors
 
-        df = pd.DataFrame(feature_vectors)
-        df.to_csv(f'data/feature_vectors_{split}.csv', index=False)
+    df = pd.DataFrame(all_feature_vectors)
+    df.to_csv(f'data/feature_vectors_{split}.csv', index=False)
 
 
-def create_feature_vector(filename, path, dog_threshold = 0.03, filtering_treshold = 1000, iou_treshold=0.3, visualize=False):  
+def create_feature_vector(filename, path, dog_threshold = 0.03, filtering_threshold = 1000, iou_treshold=0.3, visualize=False, no_trash_warning=False):  
     image = io.imread(path + filename + ".JPG")
 
     with open(path + filename + ".json") as json_file:
@@ -295,15 +304,16 @@ def create_feature_vector(filename, path, dog_threshold = 0.03, filtering_tresho
     mask, dog_image = apply_dog(image, altitude, dog_threshold)
     rois, image_rois = find_rois(image, mask, visualize=visualize)
     rois = [
-        circle for circle in rois if np.pi * circle[2] ** 2 > filtering_treshold
+        circle for circle in rois if np.pi * circle.r ** 2 > filtering_threshold
     ]  # filter rois by surface
 
     rois, image_merged_rois = merge_rois(rois, image, visualize=visualize)
 
     roi_circles, rectangles, labels, image_labels = get_labels(
-        path, filename, rois, iou_treshold, visualize, image
+        path, filename, rois, iou_treshold, visualize, image, no_trash_warning
     )
 
+    feature_vectors = []
     for circle, rectangle, label in zip(roi_circles, rectangles, labels):
         x_circles, y_circles, r_circles = circle[0], circle[1], circle[2]
 
@@ -318,6 +328,8 @@ def create_feature_vector(filename, path, dog_threshold = 0.03, filtering_tresho
         feature_vector = np.concatenate(
             (rgb_feature_vector, sift_feature_vector, np.array([label]))
         )
+
+        feature_vectors.append(feature_vector)
 
     # show all pictures
     if visualize:
@@ -339,11 +351,11 @@ def create_feature_vector(filename, path, dog_threshold = 0.03, filtering_tresho
         plt.tight_layout()
         plt.show()
 
-    return feature_vector
+    return feature_vectors
 
 
 if __name__ == "__main__":
-    create_feature_vectors("training", visualize=True)
+    create_feature_vectors("training", no_trash_warning=True, visualize=False)
     create_feature_vectors("validation", visualize=False)
     create_feature_vectors("test", visualize=False)
     
