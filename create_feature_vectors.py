@@ -32,7 +32,7 @@ def _get_sigma(altitude: int) -> int:
     return sigma
 
 
-def apply_dog(image: np.array, altitude: int) -> Tuple[np.array, np.array]:
+def apply_dog(image: np.array, altitude: int, threshold=0.03) -> Tuple[np.array, np.array]:
     """
     Apply difference of gaussians
     """
@@ -42,8 +42,6 @@ def apply_dog(image: np.array, altitude: int) -> Tuple[np.array, np.array]:
     float_image = img_as_float(gray_image)
 
     dog_image = difference_of_gaussians(float_image, sigma, 1.6 * sigma)
-
-    threshold = 0.03
 
     mask = dog_image.copy()
     _, mask = cv2.threshold(mask, threshold, 1, cv2.THRESH_BINARY)
@@ -83,7 +81,7 @@ def draw_circles(
     image: np.array, circles: List[Circle], color: Tuple[int, int, int]
 ) -> np.array:
     """
-    show all circles on the image
+    show all circles on the image with numbers and centers
     """
     for i, circle in enumerate(circles):
         cv2.circle(image, (circle.x, circle.y), circle.r, color, 2)
@@ -100,9 +98,9 @@ def draw_circles(
     return image
 
 
-def create_circle_mask(circle, image_shape):
-    """Create a mask for one circle"""
-    mask = np.zeros(image_shape[:2], dtype=np.uint8)
+def create_circle_mask(circle: Circle, image_shape: Tuple[int, int]):
+    """ Create a mask for one circle """
+    mask = np.zeros(image_shape, dtype=np.uint8)
     cv2.circle(mask, (circle.x, circle.y), circle.r, 255, -1)
     return mask
 
@@ -161,11 +159,13 @@ def get_labels(
     path: str,
     filename: str,
     roi_circles: List[Circle],
+    iou_treshold=0.3,
     visualize=False,
-    image=None,
+    image=None
 ):
     """
     get trash labeled rectangles from json file
+    @param iou_treshold – how much intersection is needed to label the circle as trash
     """
     trash_rectangles = []
 
@@ -186,18 +186,19 @@ def get_labels(
             rect = Rectangle(x_l=bl[0], y_b=bl[1], x_r=tr[0], y_t=tr[1])
             trash_rectangles.append(rect)
 
-    rectangles = []
+    # convert roi circles to rectangles
+    roi_rectangles = []
     for circle in roi_circles:
         x, y, r = circle.x, circle.y, circle.r
 
         rectangle = Rectangle(x - r, y - r, x + r, y + r)
-        rectangles.append(rectangle)
+        roi_rectangles.append(rectangle)
 
     # filter circles to get false circles
     labels = []
     for rectangle in trash_rectangles:
         for i, circle in enumerate(roi_circles):
-            if intersection_over_union(circle, rectangle) > 0.3:
+            if intersection_over_union(circle, rectangle) > iou_treshold:
                 labels.append(1)  # 1 is trash
             else:
                 labels.append(0)  # 0 is not trash
@@ -216,9 +217,19 @@ def get_labels(
                     cv2.circle(image_labels, (x, y), r, (255, 0, 0), 3)
                 else:
                     cv2.circle(image_labels, (x, y), r, (0, 255, 0), 3)
+            for rectangle in trash_rectangles:
+                cv2.rectangle(
+                    image_labels,
+                    (rectangle.x_l, rectangle.y_b),
+                    (rectangle.x_r, rectangle.y_t),
+                    (0, 0, 255),
+                    3,
+                )
 
-    return roi_circles, rectangles, labels, image_labels
+    return roi_circles, roi_rectangles, labels, image_labels
 
+
+################ GET FEATURE VECTORS ###################
 
 def get_rgb_histogram_vector(img: np.array, plot=False) -> np.array:
     image = img.copy()
@@ -240,7 +251,7 @@ def get_rgb_histogram_vector(img: np.array, plot=False) -> np.array:
     return np.concatenate((hist_r, hist_g, hist_b))
 
 
-def get_sift_feture_vector(img: np.array, kp, plot=False) -> np.array:
+def get_sift_feature_vector(img: np.array, kp, plot=False) -> np.array:
     image = img.copy()
     image_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     sift = cv2.SIFT_create()
@@ -256,9 +267,9 @@ def get_sift_feture_vector(img: np.array, kp, plot=False) -> np.array:
     return sift_vector[1][0]
 
 
-if __name__ == "__main__":
-    path = "data/Dataset/training/"
-    visualize = True
+############################ MAIN ##############################
+def create_feature_vectors(split, dog_threshold = 0.03, filtering_treshold = 1000, iou_treshold=0.3, visualize=False):
+    path = f"data/Dataset/{split}/"
 
     jpg_files = [f for f in os.listdir(path) if f.endswith(".JPG")]
     feature_vectors = []
@@ -266,58 +277,73 @@ if __name__ == "__main__":
     for jpg_file in jpg_files:
         print(jpg_file)
         filename = jpg_file[:-4]
-        image = io.imread(path + filename + ".JPG")
 
-        with open(path + filename + ".json") as json_file:
-            data = json.load(json_file)
-            altitude = int(os.path.splitext(data["imagePath"])[0].split("_")[-1])
-
-        mask, dog_image = apply_dog(image, altitude)
-        rois, image_rois = find_rois(image, mask, visualize=visualize)
-        rois = [
-            circle for circle in rois if np.pi * circle[2] ** 2 > 1000
-        ]  # filter rois by surface
-
-        rois, image_merged_rois = merge_rois(rois, image, visualize=visualize)
-
-        roi_circles, rectangles, labels, image_labels = get_labels(
-            path, filename, rois, visualize, image
-        )
-
-        for circle, rectangle, label in zip(roi_circles, rectangles, labels):
-            x_circles, y_circles, r_circles = circle[0], circle[1], circle[2]
-
-            rgb_feture_vector = get_rgb_histogram_vector(
-                image[rectangle.x_l : rectangle.x_r, rectangle.y_b : rectangle.y_t],
-                plot=False,
-            )
-
-            kp = [cv2.KeyPoint(x_circles, y_circles, 2 * r_circles)]
-            sift_feture_vector = get_sift_feture_vector(image, kp, plot=False)
-            feture_vector = np.concatenate(
-                (rgb_feture_vector, sift_feture_vector, np.array([label]))
-            )
-            feature_vectors.append(feture_vector)
+        feature_vector = create_feature_vector(filename, path, dog_threshold, filtering_treshold, iou_treshold, visualize)
+        feature_vectors.append(feature_vector)
 
         df = pd.DataFrame(feature_vectors)
-        df.to_csv('data/feature_vectors.csv', index=False)
+        df.to_csv(f'data/feature_vectors_{split}.csv', index=False)
 
 
-        # show all pictures
-        if visualize:
-            fig, axes = plt.subplots(3, 2, figsize=(20, 8))
-            ax = axes.ravel()
-            ax[0].imshow(image)
-            ax[0].title.set_text("Original image")
-            ax[1].imshow(dog_image, cmap="gray")
-            ax[1].title.set_text("Difference of gaussians")
-            ax[2].imshow(image_rois)
-            ax[2].title.set_text("ROIs")
-            ax[3].imshow(image_merged_rois)
-            ax[3].title.set_text("Filtered and merged ROIs")
-            ax[4].imshow(image_labels)
-            ax[4].title.set_text("Labels (green – trash, red – false)")
-            ax[5].imshow(np.zeros_like(image))
+def create_feature_vector(filename, path, dog_threshold = 0.03, filtering_treshold = 1000, iou_treshold=0.3, visualize=False):  
+    image = io.imread(path + filename + ".JPG")
 
-            plt.tight_layout()
-            plt.show()
+    with open(path + filename + ".json") as json_file:
+        data = json.load(json_file)
+        altitude = int(os.path.splitext(data["imagePath"])[0].split("_")[-1])
+
+    mask, dog_image = apply_dog(image, altitude, dog_threshold)
+    rois, image_rois = find_rois(image, mask, visualize=visualize)
+    rois = [
+        circle for circle in rois if np.pi * circle[2] ** 2 > filtering_treshold
+    ]  # filter rois by surface
+
+    rois, image_merged_rois = merge_rois(rois, image, visualize=visualize)
+
+    roi_circles, rectangles, labels, image_labels = get_labels(
+        path, filename, rois, iou_treshold, visualize, image
+    )
+
+    for circle, rectangle, label in zip(roi_circles, rectangles, labels):
+        x_circles, y_circles, r_circles = circle[0], circle[1], circle[2]
+
+        rgb_feature_vector = get_rgb_histogram_vector(
+            image[rectangle.x_l : rectangle.x_r, rectangle.y_b : rectangle.y_t],
+            plot=False,
+        )
+
+        kp = [cv2.KeyPoint(x_circles, y_circles, 2 * r_circles)]
+        sift_feature_vector = get_sift_feature_vector(image, kp, plot=False)
+        
+        feature_vector = np.concatenate(
+            (rgb_feature_vector, sift_feature_vector, np.array([label]))
+        )
+
+    # show all pictures
+    if visualize:
+        fig, axes = plt.subplots(3, 2, figsize=(20, 8))
+        ax = axes.ravel()
+        ax[0].imshow(image)
+        ax[0].title.set_text("Original image")
+        ax[1].imshow(dog_image, cmap="gray")
+        ax[1].title.set_text("Difference of gaussians")
+        ax[2].imshow(image_rois)
+        ax[2].title.set_text("ROIs")
+        ax[3].imshow(image_merged_rois)
+        ax[3].title.set_text("Filtered and merged ROIs")
+        ax[4].imshow(image_labels)
+        ax[4].title.set_text("Labels (green – trash, red – false, blue – provided labels)")
+        ax[5].imshow(np.zeros_like(image))
+
+        fig.canvas.manager.set_window_title(filename)
+        plt.tight_layout()
+        plt.show()
+
+    return feature_vector
+
+
+if __name__ == "__main__":
+    create_feature_vectors("training", visualize=True)
+    create_feature_vectors("validation", visualize=False)
+    create_feature_vectors("test", visualize=False)
+    
