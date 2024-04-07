@@ -294,7 +294,7 @@ def create_feature_vectors(split, dog_threshold = 0.03, filtering_treshold = 120
     df.to_csv(f'data/feature_vectors_{split}.csv', index=False)
 
 
-def create_feature_vector(filename, path, dog_threshold = 0.03, filtering_threshold = 1000, iou_treshold=0.3, visualize=False, no_trash_warning=False):  
+def create_feature_vector(filename, path, dog_threshold = 0.03, filtering_threshold = 1200, iou_treshold=0.1, visualize=False, no_trash_warning=False):  
     image = io.imread(path + filename + ".JPG")
 
     with open(path + filename + ".json") as json_file:
@@ -317,14 +317,16 @@ def create_feature_vector(filename, path, dog_threshold = 0.03, filtering_thresh
     for circle, rectangle, label in zip(roi_circles, rectangles, labels):
         x_circles, y_circles, r_circles = circle[0], circle[1], circle[2]
 
-        image_part_lab = cv2.cvtColor(image[rectangle.x_l : rectangle.x_r, rectangle.y_b : rectangle.y_t], cv2.COLOR_RGB2LAB)
+        # print(image[rectangle.y_b:rectangle.y_t, rectangle.x_l:rectangle.x_r].shape, rectangle)
+
+        image_part_lab = cv2.cvtColor(image[rectangle.y_b:rectangle.y_t, rectangle.x_l:rectangle.x_r], cv2.COLOR_RGB2LAB)
         lab_feature_vector = get_rgb_histogram_vector(
             image_part_lab,
             plot=False,
         )
 
         # rgb_feature_vector = get_rgb_histogram_vector(
-        #     image[rectangle.x_l : rectangle.x_r, rectangle.y_b : rectangle.y_t],
+        #     image[rectangle.y_b:rectangle.y_t, rectangle.x_l:rectangle.x_r],
         #     plot=False,
         # )
 
