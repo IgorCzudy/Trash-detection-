@@ -36,7 +36,7 @@ def print_scores(X, Y, classifier, split=""):
     print("-------------------")    
     return f"{accuracy:.2f},{precision:.2f},{recall:.2f},{f1:.2f},"
 
-def main(verb=False):
+def train_and_test(verb=False):
     train_data = np.loadtxt('data/feature_vectors_training.csv', delimiter=',')
     val_data = np.loadtxt('data/feature_vectors_validation.csv', delimiter=',')
     test_data = np.loadtxt('data/feature_vectors_test.csv', delimiter=',')
@@ -76,4 +76,4 @@ def main(verb=False):
     print(scores_string)
 
 if __name__ == "__main__":
-    main(verb=True)
+    train_and_test(verb=True)
