@@ -208,7 +208,7 @@ def get_labels(
     if no_trash_warning:
         if sum(labels) == 0:
             print(f"No trash detected in image {filename}")
-        elif sum(labels) != trash_rectangles:
+        elif sum(labels) != len(trash_rectangles):
             print(f"{sum(labels)} trash detected in image {filename} but should be {len(trash_rectangles)}")
     
 
@@ -277,7 +277,7 @@ def get_sift_feature_vector(img: np.array, kp, plot=False) -> np.array:
 
 
 ############################ MAIN ##############################
-def create_feature_vectors(split, dog_threshold = 0.03, filtering_treshold = 1000, iou_treshold=0.3, visualize=False, no_trash_warning=False):
+def create_feature_vectors(split, dog_threshold = 0.03, filtering_treshold = 1200, iou_treshold=0.1, visualize=False, no_trash_warning=False):
     path = f"data/Dataset/{split}/"
 
     jpg_files = [f for f in os.listdir(path) if f.endswith(".JPG")]
@@ -317,16 +317,22 @@ def create_feature_vector(filename, path, dog_threshold = 0.03, filtering_thresh
     for circle, rectangle, label in zip(roi_circles, rectangles, labels):
         x_circles, y_circles, r_circles = circle[0], circle[1], circle[2]
 
-        rgb_feature_vector = get_rgb_histogram_vector(
-            image[rectangle.x_l : rectangle.x_r, rectangle.y_b : rectangle.y_t],
+        image_part_lab = cv2.cvtColor(image[rectangle.x_l : rectangle.x_r, rectangle.y_b : rectangle.y_t], cv2.COLOR_RGB2LAB)
+        lab_feature_vector = get_rgb_histogram_vector(
+            image_part_lab,
             plot=False,
         )
+
+        # rgb_feature_vector = get_rgb_histogram_vector(
+        #     image[rectangle.x_l : rectangle.x_r, rectangle.y_b : rectangle.y_t],
+        #     plot=False,
+        # )
 
         kp = [cv2.KeyPoint(x_circles, y_circles, 2 * r_circles)]
         sift_feature_vector = get_sift_feature_vector(image, kp, plot=False)
         
         feature_vector = np.concatenate(
-            (rgb_feature_vector, sift_feature_vector, np.array([label]))
+            (lab_feature_vector, sift_feature_vector, np.array([label]))
         )
 
         feature_vectors.append(feature_vector)
