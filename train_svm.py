@@ -33,7 +33,8 @@ def print_scores(X, Y, classifier, split=""):
     print(f"precision: {precision:.2f}")
     print(f"recall: {recall:.2f}")
     print(f"F1-score: {f1:.2f}")
-    print("-------------------")
+    print("-------------------")    
+    return f"{accuracy:.2f},{precision:.2f},{recall:.2f},{f1:.2f},"
 
 def main(verb=False):
     train_data = np.loadtxt('data/feature_vectors_training.csv', delimiter=',')
@@ -50,9 +51,12 @@ def main(verb=False):
     svm_classifier = SVC(kernel='rbf', random_state=42)
     svm_classifier.fit(X_train, Y_train)
 
-    print_scores(X_train, Y_train, svm_classifier, split="train")
-    print_scores(X_val, Y_val, svm_classifier, split="validation")
-    print_scores(X_test, Y_test, svm_classifier, split="test")
+    scores_string = ""
+    scores_string += print_scores(X_train, Y_train, svm_classifier, split="train")
+    scores_string += print_scores(X_val, Y_val, svm_classifier, split="validation")
+    scores_string += print_scores(X_test, Y_test, svm_classifier, split="test")
+    print(scores_string)
+
 
     # With scaler
     print("\n\nWITH SCALER\n")
@@ -65,10 +69,11 @@ def main(verb=False):
 
     svm_classifier.fit(X_train_scaled, Y_train)
 
-    print_scores(X_train_scaled, Y_train, svm_classifier, split="train")
-    print_scores(X_val_scaled, Y_val, svm_classifier, split="validation")
-    print_scores(X_test_scaled, Y_test, svm_classifier, split="test")
-
+    scores_string = ""
+    scores_string += print_scores(X_train_scaled, Y_train, svm_classifier, split="train")
+    scores_string += print_scores(X_val_scaled, Y_val, svm_classifier, split="validation")
+    scores_string += print_scores(X_test_scaled, Y_test, svm_classifier, split="test")
+    print(scores_string)
 
 if __name__ == "__main__":
     main(verb=True)
