@@ -4,6 +4,8 @@ from typing import List
 import matplotlib.pyplot as plt
 import json
 from create_feature_vectors import Rectangle
+import os
+import time
 
 from roboflow import Roboflow
 import supervision as sv
@@ -37,11 +39,8 @@ def get_predicted_rectangles_roboflow(result: dict) -> List[Rectangle]:
     predicted_confidences = []
 
     for item in result["predictions"]:
-        if item["class"] != "Plastic Bottle":
-            print(f"Detected other object in roboflow predictions: {item['class']}")
-        else:
-            predicted_rectangles.append(Rectangle(x_l=item["x"], y_b=item["y"], x_r=item["x"]+item["width"], y_t=item["y"]+item["height"]))
-            predicted_confidences.append(item["confidence"])
+        predicted_rectangles.append(Rectangle(x_l=item["x"], y_b=item["y"], x_r=item["x"]+item["width"], y_t=item["y"]+item["height"]))
+        predicted_confidences.append(item["confidence"])
     
     return predicted_rectangles, predicted_confidences
 
@@ -51,8 +50,8 @@ def rectangles_intersect(
     rect2: Rectangle,
 ) -> bool:
 
-    x_distance = min(rect1.x_r, rect2.x_r) - max(rect1.x_l, rect2.x_l)
-    y_distance = min(rect1.y_t, rect2.y_t) - max(rect1.y_b, rect2.y_b)
+    x_distance = max(0, min(rect1.x_r, rect2.x_r) - max(rect1.x_l, rect2.x_l))
+    y_distance = max(0, min(rect1.y_t, rect2.y_t) - max(rect1.y_b, rect2.y_b))
     return x_distance * y_distance > 0
 
 
@@ -113,40 +112,74 @@ def calculate_ap50(true_rectangles, predicted_rectangles, predicted_confidences,
     sorted_indices = np.argsort(predicted_confidences)[::-1]
     predicted_rectangles = [predicted_rectangles[i] for i in sorted_indices]
 
-    total_true_rectangles = len(true_rectangles)
-    true_positives = np.zeros(len(predicted_rectangles))
-    false_positives = np.zeros(len(predicted_rectangles))
+    tp = 0
+    fp = 0
 
     for d, pred_rect in enumerate(predicted_rectangles):
         for t, true_rect in enumerate(true_rectangles):
             iou = iou_rectangles(pred_rect, true_rect)
-            if iou >= iou_threshold and not true_positives[d]:
-                true_positives[d] = 1
+            if iou >= iou_threshold:
+                tp += 1
             else:
-                false_positives[d] = 1
+                fp += 1
+    precision = tp / (tp + fp) if tp + fp > 0 else None
 
-    cumulative_true_positives = np.cumsum(true_positives)
-    cumulative_false_positives = np.cumsum(false_positives)
-    precision = cumulative_true_positives / (cumulative_true_positives + cumulative_false_positives)
-    # recall = cumulative_true_positives / total_true_rectangles
+    return precision, tp, fp
 
-    return precision[0]
+
+def draw_rectangles(image, rectangles: List[Rectangle], color=(0, 255, 0)):
+    for rectangle in rectangles:
+        cv2.rectangle(
+            image,
+            (rectangle.x_l, rectangle.y_b),
+            (rectangle.x_r, rectangle.y_t),
+            color,
+            3
+        )
+    return image
 
 
 if __name__ == "__main__":
     rf = Roboflow(api_key="FvqF3j07aqqT0BqM0VjB")
     project = rf.workspace().project("waste-in-water")
     model = project.version(1).model
+    path = "data/Dataset/training/"
+    
+    visualize = True
 
-    path = "data/Dataset/test/"
-    filename = "test_image100"
+    all_tp = 0
+    all_fp = 0
+    avg_time = 0
+    n_files = 0
 
-    result = model.predict(path+filename+".JPG", confidence=20, overlap=30).json()
+    for filename in os.listdir(path):
+        if filename.endswith(".JPG"):
+            n_files += 1
+            start = time.time()
+            result = model.predict(path+filename, confidence=20, overlap=30).json()
+            end = time.time()
+            avg_time += end - start
 
-    true_rectangles = get_true_rectangles(path, filename)
-    predicted_rectangles, predicted_confidences = get_predicted_rectangles_roboflow(result)
-    merged_rectangles, merged_confidences = merge_rectangles(predicted_rectangles, predicted_confidences)
+            true_rectangles = get_true_rectangles(path, os.path.splitext(filename)[0])
+            predicted_rectangles, predicted_confidences = get_predicted_rectangles_roboflow(result)
+            merged_rectangles, merged_confidences = merge_rectangles(predicted_rectangles, predicted_confidences)
 
-    ap50 = calculate_ap50(true_rectangles, merged_rectangles, merged_confidences, iou_threshold=0.5)
-    print(f"AP50 of roboflow model: {ap50}")
+            if visualize:
+                fig = plt.figure(filename)
+                img = cv2.imread(path + filename)
+                draw_rectangles(img, true_rectangles, (0, 255, 0))
+                draw_rectangles(img, predicted_rectangles, (0, 0, 255))
+                draw_rectangles(img, merged_rectangles, (255, 0, 255))
+                plt.imshow(img)
+                plt.show()
 
+            _, tp, fp = calculate_ap50(true_rectangles, merged_rectangles, merged_confidences, iou_threshold=0.5)
+            all_tp += tp
+            all_fp += fp
+            
+            
+    avg_time /= n_files
+    ap50 = all_tp / (all_tp + all_fp) if all_tp + all_fp > 0 else None
+    
+    print(f"AP of roboflow model: {ap50:.3f}")
+    print(f"Avg time of inference: {avg_time:.3f} s")
