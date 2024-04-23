@@ -98,14 +98,14 @@ def draw_circles(
     return image
 
 
-def create_circle_mask(circle: Circle, image_shape: Tuple[int, int]):
+def create_circle_mask(circle: Circle, image_shape: Tuple[int, int]) -> np.array:
     """ Create a mask for one circle """
     mask = np.zeros(image_shape, dtype=np.uint8)
     cv2.circle(mask, (circle.x, circle.y), circle.r, 255, -1)
     return mask
 
 
-def merge_rois(circles: List[Circle], image: np.array, visualize=False):
+def merge_rois(circles: List[Circle], image: np.array, visualize=False) -> Tuple[List[Circle], np.array]:
     """
     merge intersecting circles
     """
@@ -332,7 +332,7 @@ def create_feature_vector(filename, path, dog_threshold = 0.03, filtering_thresh
         sift_feature_vector = get_sift_feature_vector(image, kp, plot=False)
         
         feature_vector = np.concatenate(
-            (np.array(rectangle), hsv_feature_vector, sift_feature_vector, np.array([label]))
+            (hsv_feature_vector, sift_feature_vector, np.array([label]))
         )
 
         feature_vectors.append(feature_vector)
@@ -362,6 +362,6 @@ def create_feature_vector(filename, path, dog_threshold = 0.03, filtering_thresh
 
 if __name__ == "__main__":
     create_feature_vectors("training", no_trash_warning=True, visualize=False)
-    # create_feature_vectors("validation", visualize=False)
-    # create_feature_vectors("test", visualize=False)
+    create_feature_vectors("validation", visualize=False)
+    create_feature_vectors("test", visualize=False)
     
