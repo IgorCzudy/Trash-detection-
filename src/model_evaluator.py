@@ -31,7 +31,7 @@ def get_true_rectangles(path: str, filename: str) -> List[Rectangle]:
     # get trash labeled rectangles from json file
     true_rectangles = []
 
-    with open(path + filename + ".json") as json_file:
+    with open(path + "jsons/" + filename + ".json") as json_file:
         data = json.load(json_file)
         shapes = data["shapes"]
 
@@ -63,7 +63,7 @@ def get_predicted_rectangles_roboflow(result: dict) -> List[Rectangle]:
 
 
 def get_predicted_rectangles_svc(svc_model, image, scaler, filename):
-    with open(path + filename + ".json") as json_file:
+    with open(path + "jsons/" + filename + ".json") as json_file:
         data = json.load(json_file)
         altitude = int(os.path.splitext(data["imagePath"])[0].split("_")[-1])
 
@@ -213,41 +213,40 @@ def evaluate_model(model, path, model_type, visualize=False, standard_scaler=Non
     avg_time = 0
     n_files = 0
 
-    for filename in os.listdir(path):
-        if filename.endswith(".JPG"):
-            n_files += 1
-            if model_type == "roboflow":
-                start = time.time()
-                result = model.predict(path+filename, confidence=CONFIDENCE, overlap=OVERLAP).json()
-                unmerged_rectangles, unmerged_confidences = get_predicted_rectangles_roboflow(result)
-                predicted_rectangles, predicted_confidences = merge_rectangles(unmerged_rectangles, unmerged_confidences)
-                end = time.time()
+    for filename in os.listdir(path + "images/"):
+        n_files += 1
+        if model_type == "roboflow":
+            start = time.time()
+            result = model.predict(path+ "images/" + filename, confidence=CONFIDENCE, overlap=OVERLAP).json()
+            unmerged_rectangles, unmerged_confidences = get_predicted_rectangles_roboflow(result)
+            predicted_rectangles, predicted_confidences = merge_rectangles(unmerged_rectangles, unmerged_confidences)
+            end = time.time()
 
-            elif model_type == "svc":
-                img = cv2.imread(path + filename)
-                predicted_confidences = None
+        elif model_type == "svc":
+            img = cv2.imread(path + "images/" + filename)
+            predicted_confidences = None
 
-                start = time.time()
-                predicted_rectangles = get_predicted_rectangles_svc(model, img, standard_scaler, os.path.splitext(filename)[0])
-                end = time.time()
-            
-            avg_time += end - start
+            start = time.time()
+            predicted_rectangles = get_predicted_rectangles_svc(model, img, standard_scaler, os.path.splitext(filename)[0])
+            end = time.time()
+        
+        avg_time += end - start
 
-            true_rectangles = get_true_rectangles(path, os.path.splitext(filename)[0])
+        true_rectangles = get_true_rectangles(path, os.path.splitext(filename)[0])
 
-            if visualize:
-                fig = plt.figure(filename)
-                fig.canvas.set_window_title(filename)
-                img = cv2.imread(path + filename)
-                draw_rectangles(img, true_rectangles, (0, 255, 0))
-                if model_type == "roboflow": draw_rectangles(img, unmerged_rectangles, (255, 0, 255))
-                draw_rectangles(img, predicted_rectangles, (0, 0, 255))
-                plt.imshow(img)
-                plt.show()
+        if visualize:
+            fig = plt.figure(filename)
+            fig.canvas.set_window_title(filename)
+            img = cv2.imread(path + filename)
+            draw_rectangles(img, true_rectangles, (0, 255, 0))
+            if model_type == "roboflow": draw_rectangles(img, unmerged_rectangles, (255, 0, 255))
+            draw_rectangles(img, predicted_rectangles, (0, 0, 255))
+            plt.imshow(img)
+            plt.show()
 
-            _, tp, fp = calculate_ap50(true_rectangles, predicted_rectangles, predicted_confidences, iou_threshold=IOU_THRESHOLD)
-            all_tp += tp
-            all_fp += fp
+        _, tp, fp = calculate_ap50(true_rectangles, predicted_rectangles, predicted_confidences, iou_threshold=IOU_THRESHOLD)
+        all_tp += tp
+        all_fp += fp
             
             
     avg_time /= n_files
