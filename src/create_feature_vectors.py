@@ -171,7 +171,7 @@ def get_labels(
     """
     trash_rectangles = []
 
-    with open(path + filename + ".json") as json_file:
+    with open(path + "jsons/" + filename + ".json") as json_file:
         data = json.load(json_file)
         shapes = data["shapes"]
 
@@ -283,7 +283,7 @@ def create_feature_vectors(split, dog_threshold = 0.03, filtering_treshold = 120
     jpg_files = [f for f in os.listdir(path) if f.endswith(".JPG")]
     all_feature_vectors = []
 
-    for jpg_file in jpg_files:
+    for jpg_file in os.listdir(path + "images/"):
         print(jpg_file)
         filename = jpg_file[:-4]
 
@@ -295,9 +295,9 @@ def create_feature_vectors(split, dog_threshold = 0.03, filtering_treshold = 120
 
 
 def create_feature_vector(filename, path, dog_threshold = 0.03, filtering_threshold = 1200, iou_treshold=0.1, visualize=False, no_trash_warning=False):  
-    image = io.imread(path + filename + ".JPG")
+    image = io.imread(path + "images/" + filename + ".JPG")
 
-    with open(path + filename + ".json") as json_file:
+    with open(path + "jsons/" + filename + ".json") as json_file:
         data = json.load(json_file)
         altitude = int(os.path.splitext(data["imagePath"])[0].split("_")[-1])
 
