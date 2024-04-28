@@ -52,15 +52,15 @@ def train_and_test(verb=False):
 
     svm_classifier = SVC(kernel='rbf', random_state=42, class_weight="balanced", C=1.2)
 
-    # # Without scaler
-    # print("WITHOUT SCALER\n")
-    # svm_classifier.fit(X_train, Y_train)
+    # Without scaler
+    print("WITHOUT SCALER\n")
+    svm_classifier.fit(X_train, Y_train)
 
-    # scores_string = ""
-    # scores_string += print_scores(X_train, Y_train, svm_classifier, split="train")
-    # scores_string += print_scores(X_val, Y_val, svm_classifier, split="validation")
-    # scores_string += print_scores(X_test, Y_test, svm_classifier, split="test")
-    # print(scores_string)
+    scores_string = ""
+    scores_string += print_scores(X_train, Y_train, svm_classifier, split="train")
+    scores_string += print_scores(X_val, Y_val, svm_classifier, split="validation")
+    scores_string += print_scores(X_test, Y_test, svm_classifier, split="test")
+    print(scores_string)
 
 
     # With scaler
@@ -92,5 +92,8 @@ if __name__ == "__main__":
     
     with open('out/svc_model.pkl', 'wb') as f:
         pickle.dump((scaler, svm_classifier), f)
+        # pickle.dump(svm_classifier, f)
+    
+    print("Model saved to out/svc_model.pkl")
 
 
