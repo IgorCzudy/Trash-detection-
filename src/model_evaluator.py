@@ -3,18 +3,16 @@ import numpy as np
 from typing import List
 import matplotlib.pyplot as plt
 import json
-from create_feature_vectors import Rectangle
+from create_feature_vectors import Rectangle, create_feature_vector, iou_rectangles, get_true_rectangles
 import os
 import time
 
 from roboflow import Roboflow
 import supervision as sv
 import pickle
-from create_feature_vectors import apply_dog, find_rois, merge_rois, get_rgb_histogram_vector, get_sift_feature_vector
-
 
 #-------------------- PARAMETERS ------------------
-IOU_THRESHOLD = 0.1 # for AP
+IOU_THRESHOLD = 0.5 # for AP
 
 # for roboflow model
 CONFIDENCE = 20
@@ -22,33 +20,9 @@ OVERLAP=30
 
 # for svc model
 DOG_THRESHOLD = 0.03
-FILTERING_THRESHOLD = 1200 # for filtering rois
+SVC_IMG_SCALING_FACTOR = 162/1080
 # feature_vector = "hsv" # not changeable
 # --------------------------------------------------
-
-
-def get_true_rectangles(path: str, filename: str) -> List[Rectangle]:
-    # get trash labeled rectangles from json file
-    true_rectangles = []
-
-    with open(path + "jsons/" + filename + ".json") as json_file:
-        data = json.load(json_file)
-        shapes = data["shapes"]
-
-        for shape in shapes:
-            if shape["shape_type"] != "rectangle":
-                raise Exception("Invalid shape type in", filename)
-            if shape["label"] != "trash":
-                raise Exception("Invalid label in", filename)
-
-            p1, p2 = shape["points"]
-            p1 = tuple(map(int, p1))
-            p2 = tuple(map(int, p2))
-            
-            true_rectangles.append(Rectangle(x_l=min(p1[0], p2[0]), y_b=min(p1[1], p2[1]), x_r=max(p1[0], p2[0]), y_t=max(p1[1], p2[1])))
-
-    return true_rectangles
-
 
 def get_predicted_rectangles_roboflow(result: dict) -> List[Rectangle]:
     # get predicted rectangles from the result
@@ -62,55 +36,27 @@ def get_predicted_rectangles_roboflow(result: dict) -> List[Rectangle]:
     return predicted_rectangles, predicted_confidences
 
 
-def get_predicted_rectangles_svc(svc_model, image, scaler, filename):
-    with open(path + "jsons/" + filename + ".json") as json_file:
-        data = json.load(json_file)
-        altitude = int(os.path.splitext(data["imagePath"])[0].split("_")[-1])
-
-    mask, _ = apply_dog(image, altitude, DOG_THRESHOLD)
-    roi_circles, _ = find_rois(image, mask, visualize=False)
-    roi_circles = [
-        circle for circle in roi_circles if np.pi * circle.r ** 2 > FILTERING_THRESHOLD
-    ]  # filter rois by surface
-
-    roi_circles, _ = merge_rois(roi_circles, image, visualize=False)
-
-    roi_rectangles = []
-    for circle in roi_circles:
-        x, y, r = circle.x, circle.y, circle.r
-        roi_rectangles.append(Rectangle(max(x - r, 0), max(y - r, 0), x + r, y + r))
-
-    X = []
-    for circle, rectangle in zip(roi_circles, roi_rectangles):
-        x_circles, y_circles, r_circles = circle[0], circle[1], circle[2]
-
-        image_part_hsv = cv2.cvtColor(image[rectangle.y_b:rectangle.y_t, rectangle.x_l:rectangle.x_r], cv2.COLOR_RGB2HSV)
-        hsv_feature_vector = get_rgb_histogram_vector(
-            image_part_hsv,
-            plot=False,
-        )
-
-        kp = [cv2.KeyPoint(x_circles, y_circles, 2 * r_circles)]
-        sift_feature_vector = get_sift_feature_vector(image, kp, plot=False)
-        
-        feature_vector = np.concatenate(
-            (hsv_feature_vector, sift_feature_vector)
-        )
-
-        X.append(feature_vector)
+def get_predicted_rectangles_svc(svc_model, path, scaler, filename):
+    X, roi_rectangles = create_feature_vector(filename, path, dog_threshold = DOG_THRESHOLD, visualize=False, no_trash_warning=False, timing=False, with_labels=False) 
 
     if X == []:
-        predicted_trash_rectangles = []
+        scaled_predicted_trash_rectangles = []
     else:
         X = np.array(X)
         if X.ndim == 1:
             X = X.reshape(1, -1)
 
-        X_scaled = scaler.transform(X)
+        X_scaled = scaler.transform(X) if scaler is not None else X
         Y_pred = svc_model.predict(X_scaled)
         predicted_trash_rectangles = [rectangle for i, rectangle in enumerate(roi_rectangles) if  Y_pred[i]==1]  
 
-    return predicted_trash_rectangles
+        # rescale to HD image
+        scaled_predicted_trash_rectangles = []
+        for rectangle in predicted_trash_rectangles:
+            scaled_rectangle = Rectangle(x_l=int(rectangle.x_l/SVC_IMG_SCALING_FACTOR) , y_b=int(rectangle.y_b/SVC_IMG_SCALING_FACTOR) , x_r=int(rectangle.x_r/SVC_IMG_SCALING_FACTOR) , y_t=int(rectangle.y_t/SVC_IMG_SCALING_FACTOR))
+            scaled_predicted_trash_rectangles.append(scaled_rectangle)
+
+    return scaled_predicted_trash_rectangles
 
 
 def rectangles_intersect(
@@ -121,21 +67,6 @@ def rectangles_intersect(
     x_distance = max(0, min(rect1.x_r, rect2.x_r) - max(rect1.x_l, rect2.x_l))
     y_distance = max(0, min(rect1.y_t, rect2.y_t) - max(rect1.y_b, rect2.y_b))
     return x_distance * y_distance > 0
-
-
-def iou_rectangles(rect1: Rectangle, rect2: Rectangle):
-    x_left = max(rect1.x_l, rect2.x_l)
-    x_right = min(rect1.x_r, rect2.x_r)
-    y_bottom = max(rect1.y_b, rect2.y_b)
-    y_top = min(rect1.y_t, rect2.y_t)
-
-    intersection = max(0, x_right - x_left) * max(0, y_top - y_bottom)
-
-    area1 = (rect1.x_r - rect1.x_l) * (rect1.y_t - rect1.y_b)
-    area2 = (rect2.x_r - rect2.x_l) * (rect2.y_t - rect2.y_b)
-
-    union = area1 + area2 - intersection
-    return intersection / union
 
 
 def merge_rectangles(rectangles_in: list[Rectangle], confidences=None) -> List[Rectangle]:
@@ -223,11 +154,10 @@ def evaluate_model(model, path, model_type, visualize=False, standard_scaler=Non
             end = time.time()
 
         elif model_type == "svc":
-            img = cv2.imread(path + "images/" + filename)
             predicted_confidences = None
 
             start = time.time()
-            predicted_rectangles = get_predicted_rectangles_svc(model, img, standard_scaler, os.path.splitext(filename)[0])
+            predicted_rectangles = get_predicted_rectangles_svc(model, path, standard_scaler, os.path.splitext(filename)[0])
             end = time.time()
         
         avg_time += end - start
@@ -236,11 +166,11 @@ def evaluate_model(model, path, model_type, visualize=False, standard_scaler=Non
 
         if visualize:
             fig = plt.figure(filename)
-            fig.canvas.set_window_title(filename)
-            img = cv2.imread(path + filename)
-            draw_rectangles(img, true_rectangles, (0, 255, 0))
+            img = cv2.imread(path + "images/" + filename)
+            draw_rectangles(img, true_rectangles, (0, 0, 255))
             if model_type == "roboflow": draw_rectangles(img, unmerged_rectangles, (255, 0, 255))
-            draw_rectangles(img, predicted_rectangles, (0, 0, 255))
+            draw_rectangles(img, predicted_rectangles, (0, 255, 0))
+            plt.title(f"{filename} - {model_type.upper()} predicted: green, true: blue")
             plt.imshow(img)
             plt.show()
 
@@ -250,10 +180,13 @@ def evaluate_model(model, path, model_type, visualize=False, standard_scaler=Non
             
             
     avg_time /= n_files
-    ap50 = all_tp / (all_tp + all_fp) if all_tp + all_fp > 0 else None
-    
-    print(f"{model_type.upper()}")
-    print(f"AP: {ap50:.3f}")
+    if all_tp + all_fp == 0:
+        print("No trash found in the images")
+    else:
+        ap50 = all_tp / (all_tp + all_fp) 
+        
+        print(f"{model_type.upper()}")
+        print(f"AP: {ap50:.3f}")
     print(f"Avg time of inference and getting rectangles: {avg_time:.3f} s")
 
 
@@ -262,9 +195,9 @@ if __name__ == "__main__":
     paths = ["data/Dataset/training/", "data/Dataset/validation/", "data/Dataset/test/"]
     visualize = False
 
-    rf = Roboflow(api_key="4gI0eIbggGqzYmHFPYIk")
-    project = rf.workspace().project("waste-in-water")
-    rf_model = project.version(1).model
+    # rf = Roboflow(api_key="4gI0eIbggGqzYmHFPYIk")
+    # project = rf.workspace().project("waste-in-water")
+    # rf_model = project.version(1).model
 
     with open('out/svc_model.pkl', 'rb') as f:
         standard_scaler, svc_model = pickle.load(f)
@@ -272,8 +205,11 @@ if __name__ == "__main__":
     print(f"\n{IOU_THRESHOLD=}\n")
 
     for path in paths:
-        print(f"----{path.split('/')[-2].upper()}-----\n")
-        evaluate_model(rf_model, path, "roboflow", visualize)
-        print("-------------------\n")
+        if os.path.exists(path + "images/") == False:
+            print("No such directory", path)
+            continue
+        # print(f"----{path.split('/')[-2].upper()}-----\n")
+        # evaluate_model(rf_model, path, "roboflow", visualize)
+        # print("-------------------\n")
         evaluate_model(svc_model, path, "svc", visualize, standard_scaler)
         print("-------------------\n")
