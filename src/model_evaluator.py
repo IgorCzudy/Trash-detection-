@@ -1,21 +1,22 @@
 import cv2
-import numpy as np
-from typing import List
-import matplotlib.pyplot as plt
 import json
-from create_feature_vectors import Rectangle, create_feature_vector, iou_rectangles, get_true_rectangles
+import numpy as np
+import matplotlib.pyplot as plt
 import os
-import time
-
-from roboflow import Roboflow
-import supervision as sv
 import pickle
+from roboflow import Roboflow
+from sklearn.metrics import precision_recall_curve, auc
+import supervision as sv
+import time
+from typing import List
+
+from create_feature_vectors import Rectangle, create_feature_vector, iou_rectangles, get_true_rectangles
 
 #-------------------- PARAMETERS ------------------
 IOU_THRESHOLD = 0.5 # for AP
 
 # for roboflow model
-CONFIDENCE = 20
+CONFIDENCE = 10
 OVERLAP=30
 
 # for svc model
@@ -115,6 +116,9 @@ def calculate_ap50(true_rectangles, predicted_rectangles, predicted_confidences=
     tp = 0
     fp = 0
 
+    true_labels = []
+    predicted_labels = []
+
     for pred_rect in predicted_rectangles:
         is_tp = False
         for true_rect in true_rectangles:
@@ -123,13 +127,17 @@ def calculate_ap50(true_rectangles, predicted_rectangles, predicted_confidences=
                 is_tp = True
                 break
         if is_tp:
+            true_labels.append(1)
+            predicted_labels.append(1)
             tp += 1
         else:
+            true_labels.append(0)
+            predicted_labels.append(1)
             fp += 1
 
     precision = tp / (tp + fp) if tp + fp > 0 else None
 
-    return precision, tp, fp
+    return precision, tp, fp, predicted_labels, true_labels
 
 
 def draw_rectangles(image, rectangles: List[Rectangle], color=(0, 255, 0)):
@@ -141,6 +149,8 @@ def draw_rectangles(image, rectangles: List[Rectangle], color=(0, 255, 0)):
 def evaluate_model(model, path, model_type, visualize=False, standard_scaler=None):
     all_tp = 0
     all_fp = 0
+    all_predicted_confidences = []
+    all_true_labels = []
     avg_time = 0
     n_files = 0
 
@@ -148,7 +158,7 @@ def evaluate_model(model, path, model_type, visualize=False, standard_scaler=Non
         n_files += 1
         if model_type == "roboflow":
             start = time.time()
-            result = model.predict(path+ "images/" + filename, confidence=CONFIDENCE, overlap=OVERLAP).json()
+            result = model.predict(path + "images/" + filename, confidence=CONFIDENCE, overlap=OVERLAP).json()
             unmerged_rectangles, unmerged_confidences = get_predicted_rectangles_roboflow(result)
             predicted_rectangles, predicted_confidences = merge_rectangles(unmerged_rectangles, unmerged_confidences)
             end = time.time()
@@ -174,19 +184,32 @@ def evaluate_model(model, path, model_type, visualize=False, standard_scaler=Non
             plt.imshow(img)
             plt.show()
 
-        _, tp, fp = calculate_ap50(true_rectangles, predicted_rectangles, predicted_confidences, iou_threshold=IOU_THRESHOLD)
+        _, tp, fp, predicted_labels, true_labels = calculate_ap50(true_rectangles, predicted_rectangles, predicted_confidences, iou_threshold=IOU_THRESHOLD)
         all_tp += tp
         all_fp += fp
-            
+        all_predicted_confidences += predicted_confidences
+        all_true_labels += true_labels
+
+    if predicted_confidences is not None:
+        precision, recall, thresholds = precision_recall_curve(all_true_labels, all_predicted_confidences, pos_label=1, drop_intermediate=True)
+        plt.plot(recall, precision)
+        plt.xlabel("Recall")
+        plt.ylabel("Precision")
+        plt.title("Precision-Recall curve")
+        plt.show()
+        print("thresholds:", thresholds)
+        pr_auc = auc(recall, precision)
+        print("precision-recall auc: ", pr_auc)
+ 
             
     avg_time /= n_files
     if all_tp + all_fp == 0:
         print("No trash found in the images")
     else:
-        ap50 = all_tp / (all_tp + all_fp) 
+        mAP = all_tp / (all_tp + all_fp) 
         
         print(f"{model_type.upper()}")
-        print(f"AP: {ap50:.3f}")
+        print(f"AP: {mAP:.3f}")
     print(f"Avg time of inference and getting rectangles: {avg_time:.3f} s")
 
 
@@ -195,21 +218,21 @@ if __name__ == "__main__":
     paths = ["data/Dataset/training/", "data/Dataset/validation/", "data/Dataset/test/"]
     visualize = False
 
-    # rf = Roboflow(api_key="4gI0eIbggGqzYmHFPYIk")
-    # project = rf.workspace().project("waste-in-water")
-    # rf_model = project.version(1).model
+    rf = Roboflow(api_key="4gI0eIbggGqzYmHFPYIk")
+    project = rf.workspace().project("waste-in-water")
+    rf_model = project.version(1).model
 
     with open('out/svc_model.pkl', 'rb') as f:
         standard_scaler, svc_model = pickle.load(f)
 
-    print(f"\n{IOU_THRESHOLD=}\n")
+    print(f"\n{IOU_THRESHOLD=}\nminimal {CONFIDENCE=}\n")
 
     for path in paths:
         if os.path.exists(path + "images/") == False:
             print("No such directory", path)
             continue
-        # print(f"----{path.split('/')[-2].upper()}-----\n")
-        # evaluate_model(rf_model, path, "roboflow", visualize)
-        # print("-------------------\n")
+        print(f"----{path.split('/')[-2].upper()}-----\n")
+        evaluate_model(rf_model, path, "roboflow", visualize)
+        print("-------------------\n")
         evaluate_model(svc_model, path, "svc", visualize, standard_scaler)
         print("-------------------\n")
